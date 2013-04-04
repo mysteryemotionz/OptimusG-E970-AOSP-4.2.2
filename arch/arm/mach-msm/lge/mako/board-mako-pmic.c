@@ -216,16 +216,6 @@ static struct pm8xxx_misc_platform_data apq8064_pm8921_misc_pdata = {
  */
 #define PM8XXX_PWM_CHANNEL_NONE		-1
 
-#ifdef CONFIG_MACH_APQ8064_J1A
-static struct led_info pm8921_led_info[] = {
-	[0] = {
-		.name			= "led:red",
-	},
-	[1] = {
-		.name			= "button-backlight",
-	}
-};
-#else
 static struct led_info pm8921_led_info[] = {
 	[0] = {
 		.name = "led:red",
@@ -237,7 +227,6 @@ static struct led_info pm8921_led_info[] = {
 		.name = "led:green",
 	},
 };
-#endif
 
 static struct led_platform_data pm8921_led_core_pdata = {
 	.num_leds = ARRAY_SIZE(pm8921_led_info),
@@ -313,7 +302,6 @@ static struct pm8xxx_led_platform_data apq8064_pm8921_leds_pdata = {
 		.configs = pm8921_led_configs,
 		.num_configs = ARRAY_SIZE(pm8921_led_configs),
 };
-#endif
 
 static struct pm8xxx_adc_amux apq8064_pm8921_adc_channels_data[] = {
 	{"vcoin", CHANNEL_VCOIN, CHAN_PATH_SCALING2, AMUX_RSV1,
@@ -447,7 +435,7 @@ static int wireless_charger_is_plugged(void)
 	}
 
 	return !(gpio_get_value(wlc_active_n));
-}:
+}
 
 static __init void mako_fixup_wlc_gpio(void) {
 	if (lge_get_board_revno() >= HW_REV_1_1)
