@@ -30,8 +30,6 @@
 #include <linux/types.h>
 #include <linux/time.h>
 #include <linux/version.h>
-#include <linux/pm.h>
-#include <linux/pm_runtime.h>
 
 #include <asm/atomic.h>
 #include <linux/gpio.h>
@@ -87,14 +85,14 @@ struct lge_touch_attribute lge_touch_attr_##_name = __ATTR(_name, _mode, _show, 
 /* Debug mask value
  * usage: echo [debug_mask] > /sys/module/lge_touch_core/parameters/debug_mask
  */
-u32 touch_debug_mask = DEBUG_BASE_INFO;
+u32 touch_debug_mask = 0;
 module_param_named(debug_mask, touch_debug_mask, int, S_IRUGO|S_IWUSR|S_IWGRP);
 
 #ifdef LGE_TOUCH_TIME_DEBUG
 /* Debug mask value
  * usage: echo [debug_mask] > /sys/module/lge_touch_core/parameters/time_debug_mask
  */
-u32 touch_time_debug_mask = DEBUG_TIME_PROFILE_NONE;
+u32 touch_time_debug_mask = 0;
 module_param_named(time_debug_mask, touch_time_debug_mask, int, S_IRUGO|S_IWUSR|S_IWGRP);
 
 #ifdef CUST_G_TOUCH
@@ -2235,7 +2233,6 @@ static void touch_fw_upgrade_func(struct work_struct *work_fw_upgrade)
 
 		if(saved_state == POWER_WAKE || saved_state == POWER_SLEEP)
 			touch_power_cntl(ts, saved_state);
-#endif
 	}
 
 	if (likely(touch_debug_mask & (DEBUG_FW_UPGRADE |DEBUG_BASE_INFO)))
@@ -3323,12 +3320,6 @@ static int touch_probe(struct i2c_client *client, const struct i2c_device_id *id
 		goto err_alloc_data_failed;
 	}
 
-	/* Enable runtime PM ops, start in ACTIVE mode */
-	ret = pm_runtime_set_active(&client->dev);
-	if (ret < 0)
-		dev_dbg(&client->dev, "unable to set runtime pm state\n");
-	pm_runtime_enable(&client->dev);
-
 	ts->pdata = client->dev.platform_data;
 	ret = check_platform_data(ts->pdata);
 	if (ret < 0) {
@@ -3524,12 +3515,10 @@ static int touch_probe(struct i2c_client *client, const struct i2c_device_id *id
 		ts->accuracy_filter.ignore_pressure_gap = 5;
 		ts->accuracy_filter.delta_max = 30;
 		ts->accuracy_filter.max_pressure = 255;
-		ts->accuracy_filter.time_to_max_pressure = one_sec / 25;
-		ts->accuracy_filter.direction_count = one_sec / 8;
-		ts->accuracy_filter.touch_max_count = one_sec / 3;
+		ts->accuracy_filter.time_to_max_pressure = one_sec / 20;
+		ts->accuracy_filter.direction_count = one_sec / 6;
+		ts->accuracy_filter.touch_max_count = one_sec / 2;
 	}
-
-        device_init_wakeup(&client->dev, true);
 
 #if defined(CONFIG_HAS_EARLYSUSPEND)
 	ts->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
@@ -3537,8 +3526,6 @@ static int touch_probe(struct i2c_client *client, const struct i2c_device_id *id
 	ts->early_suspend.resume = touch_late_resume;
 	register_early_suspend(&ts->early_suspend);
 #endif
-
-        lge_touch_sysfs_init();
 
 	/* Register sysfs for making fixed communication path to framework layer */
 	ret = sysdev_class_register(&lge_touch_sys_class);
@@ -3585,8 +3572,6 @@ err_input_dev_alloc_failed:
 err_power_failed:
 err_assign_platform_data:
 	kfree(ts);
-	pm_runtime_set_suspended(&client->dev);
-	pm_runtime_disable(&client->dev);
 err_alloc_data_failed:
 err_check_functionality_failed:
 	return ret;
@@ -3644,10 +3629,6 @@ static void touch_early_suspend(struct early_suspend *h)
 	struct lge_touch_data *ts =
 			container_of(h, struct lge_touch_data, early_suspend);
 
-#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
-        scr_suspended = true;
-#endif
-
 	if (unlikely(touch_debug_mask & DEBUG_TRACE))
 		TOUCH_DEBUG_MSG("\n");
 
@@ -3687,13 +3668,6 @@ static void touch_late_resume(struct early_suspend *h)
 	struct lge_touch_data *ts =
 			container_of(h, struct lge_touch_data, early_suspend);
 
-#ifdef CONFIG_TOUCHSCREEN_SWEEP2WAKE
-	int int_pin = 0;
-	int next_work = 0;
-
-        scr_suspended = false;
-#endif
-
 	if (unlikely(touch_debug_mask & DEBUG_TRACE))
 		TOUCH_DEBUG_MSG("\n");
 
@@ -3722,8 +3696,6 @@ static void touch_late_resume(struct early_suspend *h)
 		queue_delayed_work(touch_wq, &ts->work_init, 0);
 }
 #endif
-}
-#endif	/* early suspend */
 
 #if defined(CONFIG_PM)
 static int touch_suspend(struct device *device)
@@ -3809,3 +3781,4 @@ void touch_driver_unregister(void)
 	if (touch_wq)
 		destroy_workqueue(touch_wq);
 }
+
