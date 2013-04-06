@@ -923,4 +923,3 @@ void __init apq8064_init_pmic(void)
 		msm8064_pm8921_regulator_pdata_len;
 }
 
-
