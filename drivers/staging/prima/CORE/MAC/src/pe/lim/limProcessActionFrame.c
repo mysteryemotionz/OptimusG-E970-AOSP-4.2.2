@@ -1287,16 +1287,24 @@ __limProcessAddBAReq( tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,tpPESession ps
   // Change the Block Ack state of this STA to wait for
   // ADDBA Rsp from HAL
   LIM_SET_STA_BA_STATE(pSta, frmAddBAReq.AddBAParameterSet.tid, eLIM_BA_STATE_WT_ADD_RSP);
-    
+
   if (wlan_cfgGetInt(pMac, WNI_CFG_NUM_BUFF_ADVERT , &val) != eSIR_SUCCESS)
-    {
-        limLog(pMac, LOGP, FL("Unable to get WNI_CFG_NUM_BUFF_ADVERT  "));
+  {
+        limLog(pMac, LOGP, FL("Unable to get WNI_CFG_NUM_BUFF_ADVERT"));
         return ;
-    }
-        
-        frmAddBAReq.AddBAParameterSet.bufferSize=
-            VOS_MIN(val,frmAddBAReq.AddBAParameterSet.bufferSize);
-        limLog( pMac, LOGE, FL( "ADDBAREQ NUMBUFF %d  " ),
+  }
+
+
+  if (frmAddBAReq.AddBAParameterSet.bufferSize)
+  {
+      frmAddBAReq.AddBAParameterSet.bufferSize =
+            VOS_MIN(val, frmAddBAReq.AddBAParameterSet.bufferSize);
+  }
+  else
+  {
+      frmAddBAReq.AddBAParameterSet.bufferSize = val;
+  }
+  limLog( pMac, LOGE, FL( "ADDBAREQ NUMBUFF %d" ),
                         frmAddBAReq.AddBAParameterSet.bufferSize);
 
   if( eSIR_SUCCESS != limPostMsgAddBAReq( pMac,
@@ -2062,6 +2070,44 @@ limProcessActionFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,tpPESession ps
             PELOGE( limLog( pMac, LOGE, FL("RRM Action frame ignored as RRM is disabled in cfg"));)
         }
         break;
+#endif
+#if  defined (WLAN_FEATURE_VOWIFI_11R) || defined (FEATURE_WLAN_CCX) || defined(FEATURE_WLAN_LFR)
+        case SIR_MAC_ACTION_VENDOR_SPECIFIC_CATEGORY:
+            {
+              tpSirMacVendorSpecificFrameHdr pVendorSpecific = (tpSirMacVendorSpecificFrameHdr) pActionHdr;
+              tpSirMacMgmtHdr     pHdr;
+              tANI_U32            frameLen;
+              tANI_U8 Oui[] = { 0x00, 0x00, 0xf0 };
+
+              pHdr = WDA_GET_RX_MAC_HEADER(pRxPacketInfo);
+              frameLen = WDA_GET_RX_PAYLOAD_LEN(pRxPacketInfo);
+
+              //Check if it is a vendor specific action frame.
+              if ((eLIM_STA_ROLE == psessionEntry->limSystemRole) &&
+                  (VOS_TRUE == palEqualMemory(pMac->hHdd, psessionEntry->selfMacAddr,
+                    &pHdr->da[0], sizeof(tSirMacAddr))) &&
+                  IS_WES_MODE_ENABLED(pMac) && palEqualMemory( pMac->hHdd, pVendorSpecific->Oui, Oui, 3))
+              {
+                  PELOGE( limLog( pMac, LOGW, FL("Received Vendor specific action frame, OUI %x %x %x"),
+                         pVendorSpecific->Oui[0], pVendorSpecific->Oui[1], pVendorSpecific->Oui[2]);)
+                 /* Forward to the SME to HDD to wpa_supplicant */
+                 // type is ACTION
+                 limSendSmeMgmtFrameInd(pMac, pHdr->fc.subType,
+                    (tANI_U8*)pHdr, frameLen + sizeof(tSirMacMgmtHdr), 0,
+                    WDA_GET_RX_CH( pRxPacketInfo ), psessionEntry, 0);
+              }
+              else
+              {
+                 limLog( pMac, LOGE, FL("Dropping the vendor specific action frame because of( "
+                                        "WES Mode not enabled (WESMODE = %d) or OUI mismatch (%02x %02x %02x) or "
+                                        "not received with SelfSta Mac address) system role = %d"),
+                                        IS_WES_MODE_ENABLED(pMac),
+                                        pVendorSpecific->Oui[0], pVendorSpecific->Oui[1],
+                                        pVendorSpecific->Oui[2],
+                                        psessionEntry->limSystemRole );
+              }
+           }
+           break;
 #endif
     case SIR_MAC_ACTION_PUBLIC_USAGE:
         switch(pActionHdr->actionID) {

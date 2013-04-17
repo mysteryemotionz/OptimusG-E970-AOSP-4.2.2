@@ -192,6 +192,9 @@ typedef enum
     eCsrForcedDisassocSta,
     eCsrForcedDeauthSta,
     eCsrPerformPreauth,
+    eCsrLostLink1Abort,
+    eCsrLostLink2Abort,
+    eCsrLostLink3Abort,
 
 }eCsrRoamReason;
 
@@ -596,11 +599,13 @@ typedef struct tagCsrConfig
 #endif
 
 #if  defined (WLAN_FEATURE_VOWIFI_11R) || defined (FEATURE_WLAN_CCX) || defined(FEATURE_WLAN_LFR)
-    tANI_U8   isFastTransitionEnabled;
-    tANI_U8   RoamRssiDiff;
-    tANI_U8   nImmediateRoamRssiDiff;
-    tANI_BOOLEAN nRoamPrefer5GHz;
-    tANI_BOOLEAN nRoamIntraBand;
+    tANI_U8       isFastTransitionEnabled;
+    tANI_U8       RoamRssiDiff;
+    tANI_U8       nImmediateRoamRssiDiff;
+    tANI_BOOLEAN  nRoamPrefer5GHz;
+    tANI_BOOLEAN  nRoamIntraBand;
+    tANI_BOOLEAN  isWESModeEnabled;
+    tANI_BOOLEAN  nRoamScanControl;
 #endif
 
 #ifdef WLAN_FEATURE_NEIGHBOR_ROAMING
@@ -956,7 +961,8 @@ typedef struct tagCsrRoamStruct
     tANI_U8   isCcxIniFeatureEnabled;
 #endif
 #if  defined (WLAN_FEATURE_VOWIFI_11R) || defined (FEATURE_WLAN_CCX) || defined(FEATURE_WLAN_LFR)
-    tANI_U8   RoamRssiDiff;
+    tANI_U8        RoamRssiDiff;
+    tANI_BOOLEAN   isWESModeEnabled;
 #endif
 }tCsrRoamStruct;
 
@@ -1073,6 +1079,11 @@ typedef struct tagCsrRoamStruct
 #define CSR_IS_ADDTS_WHEN_ACMOFF_SUPPORTED(pMac) (pMac->roam.configParam.addTSWhenACMIsOff)
 // DEAUTHIND
 #define CSR_IS_LOSTLINK_ROAMING(reason)  ((eCsrLostlinkRoamingDisassoc == (reason)) || (eCsrLostlinkRoamingDeauth == (reason)))
+
+#define CSR_IS_ROAMING_COMMAND(pCommand) ((eCsrLostLink1 == (pCommand)->u.roamCmd.roamReason) ||\
+                                          (eCsrLostLink2 == (pCommand)->u.roamCmd.roamReason) ||\
+                                          (eCsrLostLink3 == (pCommand)->u.roamCmd.roamReason) )
+
 
 //Stop CSR from asking for IMPS, This function doesn't disable IMPS from CSR
 void csrScanSuspendIMPS( tpAniSirGlobal pMac );
