@@ -144,7 +144,11 @@ int wlan_hdd_ftm_start(hdd_context_t *pAdapter);
 
 /* the Android framework expects this param even though we don't use it */
 #define BUF_LEN 20
-static char fwpath[BUF_LEN];
+static char fwpath_buffer[BUF_LEN];
+static struct kparam_string fwpath = {
+   .string = fwpath_buffer,
+   .maxlen = BUF_LEN,
+};
 #ifndef MODULE
 static int wlan_hdd_inited;
 #endif
@@ -1069,6 +1073,7 @@ int hdd_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
            {
                VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO, "%s:STA is not associated to this AP!",__func__);
                ret = -EINVAL;
+               vos_mem_free(buf);
                goto exit;
            }
 
@@ -1080,6 +1085,7 @@ int hdd_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
                          "%s: channel(%d) is different from operating channel(%d)",
                          __func__, channel, pHddStaCtx->conn_info.operationChannel);
                ret = -EINVAL;
+               vos_mem_free(buf);
                goto exit;
            }
            chan.center_freq = sme_ChnToFreq(channel);
@@ -1090,6 +1096,7 @@ int hdd_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
            {
                VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR, "%s:memory allocation failed",__func__);
                ret = -ENOMEM;
+               vos_mem_free(buf);
                goto exit;
            }
            vos_mem_zero(finalBuf, finalLen);
@@ -1113,6 +1120,9 @@ int hdd_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 
            /* Fill received buffer from 24th address */
            vos_mem_copy(finalBuf + 24, buf, bufLen);
+
+           /* done with the parsed buffer */
+           vos_mem_free(buf);
 
            wlan_hdd_action( NULL, dev, &chan, 0, NL80211_CHAN_HT20,
                        1, dwellTime, finalBuf, finalLen,  1,
@@ -1676,7 +1686,7 @@ VOS_STATUS hdd_parse_send_action_frame_data(tANI_U8 *pValue, tANI_U8 *pTargetApB
     }
 
     /*getting the next argument ie the channel number */
-    j = sscanf(inPtr, "%s ", tempBuf);
+    j = sscanf(inPtr, "%32s ", tempBuf);
     v = kstrtos32(tempBuf, 10, &tempInt);
     if ( v < 0) return -EINVAL;
 
@@ -1696,7 +1706,7 @@ VOS_STATUS hdd_parse_send_action_frame_data(tANI_U8 *pValue, tANI_U8 *pTargetApB
     }
 
     /*getting the next argument ie the dwell time */
-    j = sscanf(inPtr, "%s ", tempBuf);
+    j = sscanf(inPtr, "%32s ", tempBuf);
     v = kstrtos32(tempBuf, 10, &tempInt);
     if ( v < 0) return -EINVAL;
 
@@ -2640,19 +2650,40 @@ VOS_STATUS hdd_register_interface( hdd_adapter_t *pAdapter, tANI_U8 rtnl_lock_he
    return VOS_STATUS_SUCCESS;
 }
 
-eHalStatus hdd_smeCloseSessionCallback(void *pContext)
+static eHalStatus hdd_smeCloseSessionCallback(void *pContext)
 {
-   if(pContext != NULL)
-   {
-      clear_bit(SME_SESSION_OPENED, &((hdd_adapter_t*)pContext)->event_flags);
+   hdd_adapter_t *pAdapter = pContext;
 
-      /* need to make sure all of our scheduled work has completed.
-       * This callback is called from MC thread context, so it is safe to 
-       * to call below flush workqueue API from here. 
-       */
-      flush_scheduled_work();
-      complete(&((hdd_adapter_t*)pContext)->session_close_comp_var);
+   if (NULL == pAdapter)
+   {
+      hddLog(VOS_TRACE_LEVEL_FATAL, "%s: NULL pAdapter", __func__);
+      return eHAL_STATUS_INVALID_PARAMETER;
    }
+
+   if (WLAN_HDD_ADAPTER_MAGIC != pAdapter->magic)
+   {
+      hddLog(VOS_TRACE_LEVEL_FATAL, "%s: Invalid magic", __func__);
+      return eHAL_STATUS_NOT_INITIALIZED;
+   }
+
+   clear_bit(SME_SESSION_OPENED, &pAdapter->event_flags);
+
+   /* need to make sure all of our scheduled work has completed.
+    * This callback is called from MC thread context, so it is safe to
+    * to call below flush workqueue API from here.
+    */
+   flush_scheduled_work();
+
+   /* We can be blocked while waiting for scheduled work to be
+    * flushed, and the adapter structure can potentially be freed, in
+    * which case the magic will have been reset.  So make sure the
+    * magic is still good, and hence the adapter structure is still
+    * valid, before signaling completion */
+   if (WLAN_HDD_ADAPTER_MAGIC == pAdapter->magic)
+   {
+      complete(&pAdapter->session_close_comp_var);
+   }
+
    return eHAL_STATUS_SUCCESS;
 }
 
@@ -2758,17 +2789,17 @@ error_wmm_init:
 error_init_txrx:
    hdd_UnregisterWext(pWlanDev);
 error_register_wext:
-   if(test_bit(SME_SESSION_OPENED, &pAdapter->event_flags))
+   if (test_bit(SME_SESSION_OPENED, &pAdapter->event_flags))
    {
       INIT_COMPLETION(pAdapter->session_close_comp_var);
-      if( eHAL_STATUS_SUCCESS == sme_CloseSession( pHddCtx->hHal,
+      if (eHAL_STATUS_SUCCESS == sme_CloseSession(pHddCtx->hHal,
                                     pAdapter->sessionId,
-                                    hdd_smeCloseSessionCallback, pAdapter ) )
+                                    hdd_smeCloseSessionCallback, pAdapter))
       {
          //Block on a completion variable. Can't wait forever though.
-         wait_for_completion_interruptible_timeout(
+         wait_for_completion_timeout(
                           &pAdapter->session_close_comp_var,
-                           msecs_to_jiffies(WLAN_WAIT_TIME_SESSIONOPENCLOSE));
+                          msecs_to_jiffies(WLAN_WAIT_TIME_SESSIONOPENCLOSE));
       }
 }
 error_sme_open:
@@ -3401,7 +3432,7 @@ VOS_STATUS hdd_stop_adapter( hdd_context_t *pHddCtx, hdd_adapter_t *pAdapter )
                                  hdd_smeCloseSessionCallback, pAdapter))
             {
                //Block on a completion variable. Can't wait forever though.
-               wait_for_completion_interruptible_timeout(
+               wait_for_completion_timeout(
                           &pAdapter->session_close_comp_var, 
                           msecs_to_jiffies(WLAN_WAIT_TIME_SESSIONOPENCLOSE));
             }
@@ -5531,8 +5562,7 @@ static void __exit hdd_module_exit(void)
 static int fwpath_changed_handler(const char *kmessage,
                                  struct kernel_param *kp)
 {
-   /* nothing to do when driver is DLKM */
-   return 0;
+   return param_set_copystring(kmessage, kp);
 }
 
 static int con_mode_handler(const char *kmessage,
@@ -5543,18 +5573,18 @@ static int con_mode_handler(const char *kmessage,
 #else /* #ifdef MODULE */
 /**---------------------------------------------------------------------------
 
-  \brief fwpath_changed_handler() - Handler Function
+  \brief kickstart_driver
 
-   This is the driver entry point 
+   This is the driver entry point
    - delayed driver initialization when driver is statically linked
-   - invoked when module parameter fwpath is modified from userpspace to signal 
-    initializing the WLAN driver
+   - invoked when module parameter fwpath is modified from userspace to signal
+     initializing the WLAN driver or when con_mode is modified from userspace
+     to signal a switch in operating mode
 
   \return - 0 for success, non zero for failure
 
   --------------------------------------------------------------------------*/
-static int fwpath_changed_handler(const char *kmessage,
-                                 struct kernel_param *kp)
+static int kickstart_driver(void)
 {
    int ret_status;
 
@@ -5565,12 +5595,32 @@ static int fwpath_changed_handler(const char *kmessage,
    }
 
    hdd_driver_exit();
-   
+
    msleep(200);
-   
+
    ret_status = hdd_driver_init();
    wlan_hdd_inited = ret_status ? 0 : 1;
    return ret_status;
+}
+
+/**---------------------------------------------------------------------------
+
+  \brief fwpath_changed_handler() - Handler Function
+
+   Handle changes to the fwpath parameter
+
+  \return - 0 for success, non zero for failure
+
+  --------------------------------------------------------------------------*/
+static int fwpath_changed_handler(const char *kmessage,
+                                  struct kernel_param *kp)
+{
+   int ret;
+
+   ret = param_set_copystring(kmessage, kp);
+   if (0 == ret)
+      ret = kickstart_driver();
+   return ret;
 }
 
 /**---------------------------------------------------------------------------
@@ -5581,20 +5631,19 @@ static int fwpath_changed_handler(const char *kmessage,
   Dynamically linked - do nothing
   Statically linked - exit and init driver, as in rmmod and insmod
 
-  \param  - 
+  \param  -
 
-  \return - 
+  \return -
 
   --------------------------------------------------------------------------*/
-static int con_mode_handler(const char *kmessage,
-                                 struct kernel_param *kp)
+static int con_mode_handler(const char *kmessage, struct kernel_param *kp)
 {
-   int ret = param_set_int(kmessage, kp);
+   int ret;
 
-   if (ret)
-       return ret;
-
-   return fwpath_changed_handler(kmessage, kp);
+   ret = param_set_int(kmessage, kp);
+   if (0 == ret)
+      ret = kickstart_driver();
+   return ret;
 }
 #endif /* #ifdef MODULE */
 
@@ -6026,5 +6075,5 @@ MODULE_DESCRIPTION("WLAN HOST DEVICE DRIVER");
 module_param_call(con_mode, con_mode_handler, param_get_int, &con_mode,
                     S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 
-module_param_call(fwpath, fwpath_changed_handler, param_get_string, fwpath,
+module_param_call(fwpath, fwpath_changed_handler, param_get_string, &fwpath,
                     S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
