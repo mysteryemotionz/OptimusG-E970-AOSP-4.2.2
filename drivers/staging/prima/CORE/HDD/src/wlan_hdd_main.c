@@ -142,6 +142,8 @@ int wlan_hdd_ftm_start(hdd_context_t *pAdapter);
 #define MEMORY_DEBUG_STR ""
 #endif
 
+#define MAX_RESTART_DRIVER_EVENT_LENGTH 30
+
 /* the Android framework expects this param even though we don't use it */
 #define BUF_LEN 20
 static char fwpath_buffer[BUF_LEN];
@@ -406,6 +408,103 @@ static void hdd_wdi_trace_enable(wpt_moduleid moduleId, v_U32_t bitmask)
    }
 }
 
+void hdd_checkandupdate_phymode( hdd_adapter_t *pAdapter, char *country_code)
+{
+    hdd_station_ctx_t *pHddStaCtx = WLAN_HDD_GET_STATION_CTX_PTR(pAdapter);
+    hdd_context_t *pHddCtx = WLAN_HDD_GET_CTX(pAdapter);
+    hdd_config_t *cfg_param;
+    eCsrPhyMode phyMode;
+
+    if (NULL == pHddCtx)
+    {
+        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_FATAL,
+                "HDD Context is null !!");
+        return ;
+    }
+
+    cfg_param = pHddCtx->cfg_ini;
+
+    if (NULL == cfg_param)
+    {
+        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_FATAL,
+                "cfg_params not available !!");
+        return ;
+    }
+
+    phyMode = sme_GetPhyMode(WLAN_HDD_GET_HAL_CTX(pAdapter));
+
+    if (NULL != strstr(cfg_param->listOfNon11acCountryCode, country_code))
+    {
+        if ((eCSR_DOT11_MODE_AUTO == phyMode) ||
+            (eCSR_DOT11_MODE_11ac == phyMode) ||
+            (eCSR_DOT11_MODE_11ac_ONLY == phyMode))
+        {
+             VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
+                     "Setting phymode to 11n!!");
+            sme_SetPhyMode(WLAN_HDD_GET_HAL_CTX(pAdapter), eCSR_DOT11_MODE_11n);
+        }
+    }
+    else
+    {
+        /*New country Supports 11ac as well resetting value back from .ini*/
+        sme_SetPhyMode(WLAN_HDD_GET_HAL_CTX(pAdapter),
+              hdd_cfg_xlate_to_csr_phy_mode(cfg_param->dot11Mode));
+        return ;
+    }
+
+    if ((eConnectionState_Associated == pHddStaCtx->conn_info.connState) &&
+        ((eCSR_CFG_DOT11_MODE_11AC_ONLY == pHddStaCtx->conn_info.dot11Mode) ||
+         (eCSR_CFG_DOT11_MODE_11AC == pHddStaCtx->conn_info.dot11Mode)))
+    {
+        VOS_STATUS vosStatus;
+
+        // need to issue a disconnect to CSR.
+        INIT_COMPLETION(pAdapter->disconnect_comp_var);
+        vosStatus = sme_RoamDisconnect(WLAN_HDD_GET_HAL_CTX(pAdapter),
+                           pAdapter->sessionId,
+                           eCSR_DISCONNECT_REASON_UNSPECIFIED );
+
+        if (VOS_STATUS_SUCCESS == vosStatus)
+            wait_for_completion_interruptible_timeout(&pAdapter->disconnect_comp_var,
+                  msecs_to_jiffies(WLAN_WAIT_TIME_DISCONNECT));
+
+    }
+}
+
+void hdd_checkandupdate_dfssetting( hdd_adapter_t *pAdapter, char *country_code)
+{
+    hdd_context_t *pHddCtx = WLAN_HDD_GET_CTX(pAdapter);
+    hdd_config_t *cfg_param;
+
+    if (NULL == pHddCtx)
+    {
+        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_FATAL,
+                "HDD Context is null !!");
+        return ;
+    }
+
+    cfg_param = pHddCtx->cfg_ini;
+
+    if (NULL == cfg_param)
+    {
+        VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_FATAL,
+                "cfg_params not available !!");
+        return ;
+    }
+
+    if (NULL != strstr(cfg_param->listOfNonDfsCountryCode, country_code))
+    {
+       /*New country doesn't support DFS */
+       sme_UpdateDfsSetting(WLAN_HDD_GET_HAL_CTX(pAdapter), 0);
+    }
+    else
+    {
+       /*New country Supports DFS as well resetting value back from .ini*/
+       sme_UpdateDfsSetting(WLAN_HDD_GET_HAL_CTX(pAdapter), cfg_param->enableDFSChnlScan);
+    }
+
+}
+
 int hdd_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
    hdd_adapter_t *pAdapter = WLAN_HDD_GET_PRIV_PTR(dev);
@@ -492,6 +591,9 @@ int hdd_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
            char *country_code;
 
            country_code = command + 8;
+
+           hdd_checkandupdate_dfssetting(pAdapter, country_code);
+           hdd_checkandupdate_phymode(pAdapter, country_code);
            ret = (int)sme_ChangeCountryCode(pHddCtx->hHal, NULL, country_code,
                     pAdapter, pHddCtx->pvosContext);
            if( 0 != ret )
@@ -538,6 +640,8 @@ int hdd_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
                goto exit;
            }
 
+           hdd_checkandupdate_dfssetting(pAdapter, countryCode);
+           hdd_checkandupdate_phymode(pAdapter, countryCode);
            ret = (int)sme_ChangeCountryCode(pHddCtx->hHal, NULL, countryCode,
                     pAdapter, pHddCtx->pvosContext);
            if (0 != ret)
@@ -1993,7 +2097,7 @@ int hdd_open (struct net_device *dev)
       if (test_bit(DEVICE_IFACE_OPENED, &pAdapterNode->pAdapter->event_flags))
       {
          hddLog(VOS_TRACE_LEVEL_INFO, "%s: chip already out of standby",
-                __func__, pAdapter->device_mode);
+                __func__);
          in_standby = FALSE;
          break;
       }
@@ -2103,7 +2207,7 @@ int hdd_stop (struct net_device *dev)
       if (test_bit(DEVICE_IFACE_OPENED, &pAdapterNode->pAdapter->event_flags))
       {
          hddLog(VOS_TRACE_LEVEL_INFO, "%s: Still other ifaces are up cannot "
-                "put device to sleep", __func__, pAdapter->device_mode);
+                "put device to sleep", __func__);
          enter_standby = FALSE;
          break;
       }
@@ -4187,7 +4291,7 @@ static void hdd_full_power_callback(void *callbackContext, eHalStatus status)
    struct fullPowerContext *pContext = callbackContext;
 
    hddLog(VOS_TRACE_LEVEL_INFO,
-          "%s: context = %p, status = %d", pContext, status);
+          "%s: context = %p, status = %d", __func__, pContext, status);
 
    if (NULL == callbackContext)
    {
@@ -4561,7 +4665,7 @@ VOS_STATUS hdd_post_voss_start_config(hdd_context_t* pHddCtx)
    halStatus = sme_HDDReadyInd( pHddCtx->hHal );
    if ( !HAL_STATUS_SUCCESS( halStatus ) )
    {
-      hddLog(VOS_TRACE_LEVEL_ERROR,"%S: sme_HDDReadyInd() failed with status "
+      hddLog(VOS_TRACE_LEVEL_ERROR,"%s: sme_HDDReadyInd() failed with status "
           "code %08d [x%08x]",__func__, halStatus, halStatus );
       return VOS_STATUS_E_FAILURE;
    }
@@ -5139,6 +5243,15 @@ int hdd_wlan_startup(struct device *dev )
 
 #endif //WLAN_BTAMP_FEATURE
 
+#ifdef WLAN_FEATURE_ROAM_SCAN_OFFLOAD
+   if(!(IS_ROAM_SCAN_OFFLOAD_FEATURE_ENABLE))
+   {
+      hddLog(VOS_TRACE_LEVEL_DEBUG,"%s: ROAM_SCAN_OFFLOAD Feature not supported",__func__);
+      pHddCtx->cfg_ini->isRoamOffloadScanEnabled = 0;
+      sme_UpdateRoamScanOffloadEnabled((tHalHandle)(pHddCtx->hHal),
+                       pHddCtx->cfg_ini->isRoamOffloadScanEnabled);
+   }
+#endif
 #ifdef FEATURE_WLAN_SCAN_PNO
    /*SME must send channel update configuration to RIVA*/
    sme_UpdateChannelConfig(pHddCtx->hHal); 
@@ -5184,7 +5297,7 @@ int hdd_wlan_startup(struct device *dev )
    //Initialize the nlink service
    if(nl_srv_init() != 0)
    {
-      hddLog(VOS_TRACE_LEVEL_FATAL,"%S: nl_srv_init failed",__func__);
+      hddLog(VOS_TRACE_LEVEL_FATAL,"%s: nl_srv_init failed", __func__);
       goto err_reg_netdev;
    }
 
@@ -5694,7 +5807,7 @@ VOS_STATUS hdd_softap_sta_deauth(hdd_adapter_t *pAdapter, v_U8_t *pDestMacAddres
 
     ENTER();
 
-    hddLog( LOGE, "hdd_softap_sta_deauth:(0x%x, false)", (WLAN_HDD_GET_CTX(pAdapter))->pvosContext);
+    hddLog( LOGE, "hdd_softap_sta_deauth:(%p, false)", (WLAN_HDD_GET_CTX(pAdapter))->pvosContext);
 
     //Ignore request to deauth bcmc station
     if( pDestMacAddress[0] & 0x1 )
@@ -5726,7 +5839,7 @@ void hdd_softap_sta_disassoc(hdd_adapter_t *pAdapter,v_U8_t *pDestMacAddress)
 
     ENTER();
 
-    hddLog( LOGE, "hdd_softap_sta_disassoc:(0x%x, false)", (WLAN_HDD_GET_CTX(pAdapter))->pvosContext);
+    hddLog( LOGE, "hdd_softap_sta_disassoc:(%p, false)", (WLAN_HDD_GET_CTX(pAdapter))->pvosContext);
 
     //Ignore request to disassoc bcmc station
     if( pDestMacAddress[0] & 0x1 )
@@ -5741,7 +5854,7 @@ void hdd_softap_tkip_mic_fail_counter_measure(hdd_adapter_t *pAdapter,v_BOOL_t e
 
     ENTER();
 
-    hddLog( LOGE, "hdd_softap_tkip_mic_fail_counter_measure:(0x%x, false)", (WLAN_HDD_GET_CTX(pAdapter))->pvosContext);
+    hddLog( LOGE, "hdd_softap_tkip_mic_fail_counter_measure:(%p, false)", (WLAN_HDD_GET_CTX(pAdapter))->pvosContext);
 
     WLANSAP_SetCounterMeasure(pVosContext, (v_BOOL_t)enable);
 }
@@ -5952,18 +6065,8 @@ static VOS_STATUS wlan_hdd_framework_restart(hdd_context_t *pHddCtx)
 {
    VOS_STATUS status = VOS_STATUS_SUCCESS;
    hdd_adapter_list_node_t *pAdapterNode = NULL, *pNext = NULL;
-   int len = (sizeof (struct ieee80211_mgmt));
-   struct ieee80211_mgmt *mgmt = NULL; 
-   
-   /* Prepare the DEAUTH managment frame with reason code */
-   mgmt =  kzalloc(len, GFP_KERNEL);
-   if(mgmt == NULL) 
-   {
-      VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_FATAL, 
-            "%s: memory allocation failed (%d bytes)", __func__, len);
-      return VOS_STATUS_E_NOMEM;
-   }
-   mgmt->u.deauth.reason_code = WLAN_REASON_DISASSOC_LOW_ACK;
+   unsigned char restart_notification[MAX_RESTART_DRIVER_EVENT_LENGTH + 1];
+   union iwreq_data wrqu;
 
    /* Iterate over all adapters/devices */
    status =  hdd_get_front_adapter ( pHddCtx, &pAdapterNode );
@@ -5978,27 +6081,21 @@ static VOS_STATUS wlan_hdd_framework_restart(hdd_context_t *pHddCtx)
                pAdapterNode->pAdapter->dev->name,
                pAdapterNode->pAdapter->device_mode,
                pHddCtx->hdd_restart_retries + 1);
-         /* 
-          * CFG80211 event to restart the driver
-          * 
-          * 'cfg80211_send_unprot_deauth' sends a 
-          * NL80211_CMD_UNPROT_DEAUTHENTICATE event to supplicant at any state 
-          * of SME(Linux Kernel) state machine.
-          *
-          * Reason code WLAN_REASON_DISASSOC_LOW_ACK is currently used to restart
-          * the driver.
-          *
-          */
-         
-         cfg80211_send_unprot_deauth(pAdapterNode->pAdapter->dev, (u_int8_t*)mgmt, len );  
+
+          /* Notify the wpa supplicant of wcnss restart by sending the custom event */
+          memset(&wrqu, 0 , sizeof(wrqu));
+          memset(restart_notification, 0, sizeof(restart_notification));
+
+          strlcpy(restart_notification, "QCOM: RESTART_DRIVER_DXE", sizeof(restart_notification));
+
+          wrqu.data.pointer = restart_notification;
+          wrqu.data.length = strlen(restart_notification);
+
+          wireless_send_event(pAdapterNode->pAdapter->dev, IWEVCUSTOM, &wrqu, restart_notification);
       }
       status = hdd_get_next_adapter ( pHddCtx, pAdapterNode, &pNext );
       pAdapterNode = pNext;
    } while((NULL != pAdapterNode) && (VOS_STATUS_SUCCESS == status));
-
-
-   /* Free the allocated management frame */
-   kfree(mgmt);
 
    /* Retry until we unload or reach max count */
    if(++pHddCtx->hdd_restart_retries < WLAN_HDD_RESTART_RETRY_MAX_CNT) 

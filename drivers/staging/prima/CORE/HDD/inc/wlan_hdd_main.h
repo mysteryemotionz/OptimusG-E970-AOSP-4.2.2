@@ -411,7 +411,8 @@ typedef enum device_mode
    WLAN_HDD_P2P_GO,
    WLAN_HDD_MONITOR,
    WLAN_HDD_FTM,
-   WLAN_HDD_P2P_DEVICE
+   WLAN_HDD_IBSS,
+   WLAN_HDD_P2P_DEVICE,
 }device_mode_t;
 
 typedef enum rem_on_channel_request_type
@@ -453,6 +454,7 @@ typedef struct
    v_TIME_t             lastblockTs;
    v_TIME_t             lastOpenTs;
    struct netdev_queue *blockedQueue;
+   v_BOOL_t             qBlocked;
 } hdd_thermal_mitigation_info_t;
 
 typedef struct hdd_remain_on_chan_ctx
