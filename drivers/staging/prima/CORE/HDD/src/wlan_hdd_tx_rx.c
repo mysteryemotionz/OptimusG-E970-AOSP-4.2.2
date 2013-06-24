@@ -1454,7 +1454,8 @@ VOS_STATUS hdd_rx_packet_cbk( v_VOID_t *vosContext,
                       "rx extract mac:" MAC_ADDRESS_STR,
                       MAC_ADDR_ARRAY(mac) );
             curr_peer = wlan_hdd_tdls_find_peer(pAdapter, mac);
-            if ((NULL != curr_peer) && (eTDLS_LINK_CONNECTED == curr_peer->link_status))
+            if ((NULL != curr_peer) && (eTDLS_LINK_CONNECTED == curr_peer->link_status)
+                 && (TRUE == pRxMetaInfo->isStaTdls))
             {
                 wlan_hdd_tdls_increment_pkt_count(pAdapter, mac, 0);
                 VOS_TRACE( VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,"rssi is %d", pRxMetaInfo->rssiAvg);
@@ -1475,7 +1476,7 @@ VOS_STATUS hdd_rx_packet_cbk( v_VOID_t *vosContext,
       pAdapter->stats.rx_bytes += skb->len;
 #ifdef WLAN_OPEN_SOURCE
 #ifdef WLAN_FEATURE_HOLD_RX_WAKELOCK
-      wake_lock_timeout(&pHddCtx->rx_wake_lock, HDD_WAKE_LOCK_DURATION);
+      wake_lock_timeout(&pHddCtx->rx_wake_lock, msecs_to_jiffies(HDD_WAKE_LOCK_DURATION));
 #endif
 #endif
       rxstat = netif_rx_ni(skb);

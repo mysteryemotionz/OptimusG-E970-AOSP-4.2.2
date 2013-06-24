@@ -574,14 +574,17 @@ typedef struct tagCsrConfig
 
     tANI_U32  nActiveMinChnTimeBtc;     //in units of milliseconds
     tANI_U32  nActiveMaxChnTimeBtc;     //in units of milliseconds
+    tANI_U8   disableAggWithBtc;
 #ifdef WLAN_AP_STA_CONCURRENCY
     tANI_U32  nPassiveMinChnTimeConc;    //in units of milliseconds
     tANI_U32  nPassiveMaxChnTimeConc;    //in units of milliseconds
     tANI_U32  nActiveMinChnTimeConc;     //in units of milliseconds
     tANI_U32  nActiveMaxChnTimeConc;     //in units of milliseconds
     tANI_U32  nRestTimeConc;             //in units of milliseconds
-    tANI_U8   nNumChanCombinedConc;      //number of channels combined
-                                         //in each split scan operation
+    tANI_U8   nNumStaChanCombinedConc;   //number of channels combined for
+                                         //Sta in each split scan operation
+    tANI_U8   nNumP2PChanCombinedConc;   //number of channels combined for
+                                         //P2P in each split scan operation
 #endif
 
     tANI_BOOLEAN IsIdleScanEnabled;
@@ -617,6 +620,8 @@ typedef struct tagCsrConfig
     tANI_BOOLEAN  nRoamIntraBand;
     tANI_BOOLEAN  isWESModeEnabled;
     tANI_BOOLEAN  nRoamScanControl;
+    tANI_U8       nProbes;
+    tANI_U16      nRoamScanHomeAwayTime;
 #endif
 
 #ifdef WLAN_FEATURE_NEIGHBOR_ROAMING
@@ -638,6 +643,7 @@ typedef struct tagCsrConfig
     tANI_U32  nVhtChannelWidth;
     tANI_U8   txBFEnable;
     tANI_U8   txBFCsnValue;
+    tANI_BOOLEAN enableVhtFor24GHz;
 #endif
     tANI_U8   txLdpcEnable;
 
@@ -1311,7 +1317,8 @@ tANI_BOOLEAN csrIsSetKeyAllowed(tpAniSirGlobal pMac, tANI_U32 sessionId);
 void csrSetOppositeBandChannelInfo( tpAniSirGlobal pMac );
 void csrConstructCurrentValidChannelList( tpAniSirGlobal pMac, tDblLinkList *pChannelSetList,
                                             tANI_U8 *pChannelList, tANI_U8 bSize, tANI_U8 *pNumChannels );
-
+eHalStatus csrScanSavePreferredNetworkFound(tpAniSirGlobal pMac,
+            tSirPrefNetworkFoundInd *pPrefNetworkFoundInd);
 #endif
 
 #ifdef WLAN_FEATURE_VOWIFI_11R
@@ -1339,6 +1346,8 @@ VOS_STATUS csrAddToChannelListFront( tANI_U8 *pChannelList, int  numChannels, tA
 #ifdef WLAN_FEATURE_ROAM_SCAN_OFFLOAD
 eHalStatus csrScanRequestLfrResult(tpAniSirGlobal pMac, tANI_U32 sessionId,
                                    csrScanCompleteCallback callback, void *pContext);
+eHalStatus csrRoamOffloadScanRspHdlr(tpAniSirGlobal pMac, tANI_U8 reason);
+eHalStatus csrHandoffRequest(tpAniSirGlobal pMac, tCsrHandoffRequest *pHandoffInfo);
 #endif
 tANI_BOOLEAN csrRoamIsStaMode(tpAniSirGlobal pMac, tANI_U32 sessionId);
 #endif

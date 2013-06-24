@@ -323,7 +323,7 @@ limCheckRxBasicRates(tpAniSirGlobal pMac, tSirMacRateSet rxRateSet,tpPESession p
     for (k = 0; k < j; k++)
     {
         match = 0;
-        for (i = 0; i < rxRateSet.numRates; i++)
+        for (i = 0; ((i < rxRateSet.numRates) && (i < SIR_MAC_RATESET_EID_MAX)); i++)
         {
             if ((rxRateSet.rate[i] | 0x80) ==    basicRate.rate[k])
                 match = 1;
@@ -2655,8 +2655,7 @@ limAddStaSelf(tpAniSirGlobal pMac,tANI_U16 staIdx, tANI_U8 updateSta, tpPESessio
 #ifdef WLAN_FEATURE_11AC
     pAddStaParams->vhtCapable = IS_DOT11_MODE_VHT(selfStaDot11Mode);
     if (pAddStaParams->vhtCapable){
-        pAddStaParams->vhtTxChannelWidthSet =
-            pMac->roam.configParam.nVhtChannelWidth;
+        pAddStaParams->vhtTxChannelWidthSet = psessionEntry->vhtTxChannelWidthSet;
         limLog( pMac, LOG1, FL("VHT WIDTH SET %d"),pAddStaParams->vhtTxChannelWidthSet);
     }
     pAddStaParams->vhtTxBFCapable = psessionEntry->txBFIniFeatureEnabled;

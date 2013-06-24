@@ -100,13 +100,6 @@
 #endif
 
 
-// UAPSD Mask bits
-// (Bit0:VO; Bit1:VI; Bit2:BK; Bit3:BE all other bits are ignored)
-#define HDD_AC_VO 0x1
-#define HDD_AC_VI 0x2
-#define HDD_AC_BK 0x4
-#define HDD_AC_BE 0x8
-
 #define WLAN_HDD_MAX_DSCP 0x3f
 
 static sme_QosWmmUpType hddWmmDscpToUpMap[WLAN_HDD_MAX_DSCP+1];
@@ -1823,8 +1816,9 @@ v_U16_t hdd_wmm_select_queue(struct net_device * dev, struct sk_buff *skb)
                                pDestMacAddress, pSTAId))
        {
           VOS_TRACE( VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO,
-                "%s: Failed to find right station pDestMacAddress: "
-                MAC_ADDRESS_STR , MAC_ADDR_ARRAY(pDestMacAddress),__func__);
+                     "%s: Failed to find right station pDestMacAddress: "
+                     MAC_ADDRESS_STR , __func__,
+                     MAC_ADDR_ARRAY(pDestMacAddress->bytes));
           *pSTAId = HDD_WLAN_INVALID_STA_ID;
           goto done;
        }

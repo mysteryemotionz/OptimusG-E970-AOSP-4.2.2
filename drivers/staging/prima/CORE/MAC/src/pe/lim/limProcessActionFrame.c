@@ -1120,7 +1120,7 @@ __limValidateAddBAParameterSet( tpAniSirGlobal pMac,
         (LIM_ADDBA_REQ == reqType))
   {
       //There is already BA session setup for STA/TID.
-      limLog( pMac, LOGW,
+      limLog( pMac, LOGE,
           FL( "AddBAReq rcvd when there is already a session for this StaId = %d, tid = %d\n " ),
           pSta->staIndex, baParameterSet.tid);
       limPrintMacAddr( pMac, pSta->staAddr, LOGW );
@@ -1198,6 +1198,7 @@ __limProcessAddBAReq( tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,tpPESession ps
     pHdr = WDA_GET_RX_MAC_HEADER( pRxPacketInfo );
     pBody = WDA_GET_RX_MPDU_DATA( pRxPacketInfo );
     frameLen = WDA_GET_RX_PAYLOAD_LEN( pRxPacketInfo );
+    val = 0;
 
     // Unpack the received frame
     nStatus = dot11fUnpackAddBAReq( pMac, pBody, frameLen, &frmAddBAReq );
@@ -1223,12 +1224,14 @@ __limProcessAddBAReq( tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,tpPESession ps
         PELOG2(sirDumpBuf( pMac, SIR_DBG_MODULE_ID, LOG2, pBody, frameLen );)
     }
 
+    psessionEntry->amsduSupportedInBA = frmAddBAReq.AddBAParameterSet.amsduSupported;
+
     pSta = dphLookupHashEntry( pMac, pHdr->sa, &aid, &psessionEntry->dph.dphHashTable );
     if( pSta == NULL )
     {
         limLog( pMac, LOGE,
             FL( "STA context not found - ignoring ADDBA from " ));
-        limPrintMacAddr( pMac, pHdr->sa, LOGW );
+        limPrintMacAddr( pMac, pHdr->sa, LOGE );
 
         // FIXME - Should we do this?
         status = eSIR_MAC_INABLITY_TO_CONFIRM_ASSOC_STATUS;
@@ -1248,6 +1251,23 @@ __limProcessAddBAReq( tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,tpPESession ps
     }
 #endif //WLAN_SOFTAP_VSTA_FEATURE
 
+    if (wlan_cfgGetInt(pMac, WNI_CFG_DEL_ALL_RX_BA_SESSIONS_2_4_G_BTC, &val) !=
+                    eSIR_SUCCESS)
+    {
+        limLog(pMac, LOGE,
+               FL("Unable to get WNI_CFG_DEL_ALL_RX_BA_SESSIONS_2_4_G_BTC"));
+        val = 0;
+    }
+    if ((SIR_BAND_2_4_GHZ == limGetRFBand(psessionEntry->currentOperChannel)) &&
+                    val)
+    {
+        limLog( pMac, LOGW,
+            FL( "BTC disabled aggregation - ignoring ADDBA from " ));
+        limPrintMacAddr( pMac, pHdr->sa, LOGW );
+
+        status = eSIR_MAC_REQ_DECLINED_STATUS;
+        goto returnAfterError;
+    }
 
     // Now, validate the ADDBA Req
     if( eSIR_MAC_SUCCESS_STATUS !=
@@ -1304,7 +1324,7 @@ __limProcessAddBAReq( tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,tpPESession ps
   {
       frmAddBAReq.AddBAParameterSet.bufferSize = val;
   }
-  limLog( pMac, LOGE, FL( "ADDBAREQ NUMBUFF %d" ),
+  limLog( pMac, LOG1, FL( "ADDBAREQ NUMBUFF %d" ),
                         frmAddBAReq.AddBAParameterSet.bufferSize);
 
   if( eSIR_SUCCESS != limPostMsgAddBAReq( pMac,
@@ -1410,7 +1430,7 @@ tANI_U8 *pBody;
     PELOG2(sirDumpBuf( pMac, SIR_DBG_MODULE_ID, LOG2, pBody, frameLen );)
   }
 
-  limLog( pMac, LOGW,
+  limLog( pMac, LOGE,
       FL( "ADDBA Rsp from STA with AID %d, tid = %d, status = %d" ),
       aid, frmAddBARsp.AddBAParameterSet.tid, frmAddBARsp.Status.status);
 
@@ -1419,7 +1439,7 @@ tANI_U8 *pBody;
   if(eSIR_SUCCESS != limSearchAndDeleteDialogueToken(pMac, frmAddBARsp.DialogToken.token,
         pSta->assocId, frmAddBARsp.AddBAParameterSet.tid))
   {
-      PELOGW(limLog(pMac, LOGW, FL("dialogueToken in received addBARsp did not match with outstanding requests"));)
+      PELOGW(limLog(pMac, LOGE, FL("dialogueToken in received addBARsp did not match with outstanding requests"));)
       return;
   }
 
