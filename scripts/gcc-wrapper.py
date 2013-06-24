@@ -44,6 +44,13 @@ allowed_warnings = set([
     "mmu.c:602",
     "return_address.c:62",
     "lge_touch_core.h:226",
+    "wlan_hdd_ftm.c:2291",
+    "csrUtil.c:2492",
+    "csrApiScan.c:3376"
+    "wlan_qct_tl.c:10619",
+    "csrApiRoam.c:13686",
+    "csrApiRoam.c:8304",
+    "wlan_qct_wda.c:1581",
  ])
 
 # Capture the name of the object file, can find it.
